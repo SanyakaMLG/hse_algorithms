@@ -1,0 +1,60 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Get changed homework directories
+        id: changed_dirs
+        run: |
+          git diff --name-only HEAD~1 HEAD > changed_files.txt
+
+          grep -E '^homework_[0-9]+/' changed_files.txt | \
+            cut -d'/' -f1 | \
+            sort -u > affected_homeworks.txt
+
+          if [ -s affected_homeworks.txt ]; then
+            echo "Affected homeworks: $(cat affected_homeworks.txt | tr '\n' ' ')"
+            echo "dirs=$(cat affected_homeworks.txt | tr '\n' ' ')" >> $GITHUB_OUTPUT
+            echo "mode=partial" >> $GITHUB_OUTPUT
+          else
+            echo "No homework directories changed. Running all tests."
+            echo "mode=all" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run tests for changed homeworks
+        if: steps.changed_dirs.outputs.mode == 'partial'
+        run: |
+          for dir in $(echo "${{ steps.changed_dirs.outputs.dirs }}"); do
+            echo "Running tests in $dir..."
+            if [ -d "$dir" ]; then
+              pytest "$dir/" -v
+            else
+              echo "Warning: $dir not found, skipping."
+            fi
+          done
+
+      - name: Run all tests (fallback)
+        if: steps.changed_dirs.outputs.mode == 'all'
+        run: |
+          echo "Running all tests..."
+          pytest . -v
